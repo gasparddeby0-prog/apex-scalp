@@ -1,0 +1,48 @@
+[project]
+name = "apex-scalp"
+version = "0.1.0"
+description = "APEX-SCALP - a layered, multi-strategy MT5 scalping bot with a paper-trading default."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "python-dotenv>=1.0",
+    "dash>=2.16",
+    "plotly>=5.20",
+]
+
+[project.optional-dependencies]
+# MetaTrader5 is Windows-only and requires a running MT5 terminal.
+# Install with: uv pip install -e ".[mt5]"  (on Windows)
+mt5 = ["MetaTrader5>=5.0.45"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+apex = "apex.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/apex"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
