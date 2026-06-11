@@ -21,7 +21,6 @@ echo # Risque ^(prudent pour la demo^)
 echo APEX_RISK_PER_TRADE_PCT=0.5
 echo APEX_MAX_DAILY_RISK_PCT=2.0
 echo APEX_MAX_WEEKLY_RISK_PCT=5.0
-echo APEX_MAX_OPEN_POSITIONS=2
 echo.
 echo # Symboles a scanner
 echo APEX_SYMBOLS=EURUSD,GBPUSD,USDJPY,XAUUSD
