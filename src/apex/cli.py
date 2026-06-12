@@ -55,6 +55,9 @@ def _build_orchestrator(args) -> Orchestrator:
     settings = load_settings()
     if getattr(args, "symbols", None):
         settings.symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    if getattr(args, "mode", None):
+        settings.mode = TradingMode(args.mode)
+    log.info("Active mode: %s", settings.mode.value.upper())
     orch = Orchestrator(settings)
     if not orch.start():
         raise SystemExit("Failed to connect broker. Check your configuration.")
@@ -132,6 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="apex", description="APEX-SCALP multi-strategy bot")
     p.add_argument("--version", action="version", version=f"apex {__version__}")
     p.add_argument("--symbols", help="override symbols, comma-separated")
+    p.add_argument("--mode", choices=["paper", "live"], default=None,
+                   help="override APEX_MODE (paper or live). Robust against .env issues.")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("scan", help="run a single analysis cycle")
@@ -167,7 +172,8 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging(logging.INFO)
     args = build_parser().parse_args(argv)
     settings = load_settings()
-    if settings.mode is TradingMode.LIVE:
+    mode = TradingMode(args.mode) if getattr(args, "mode", None) else settings.mode
+    if mode is TradingMode.LIVE:
         log.warning("LIVE MODE ENABLED - real orders may be sent to MT5.")
     args.func(args)
 

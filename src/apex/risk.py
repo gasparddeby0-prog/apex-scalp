@@ -59,6 +59,9 @@ class RiskManager:
         self.consecutive_losses: int = 0
         self._day: int = -1
         self._week: int = -1
+        # Risk currently committed to each open position (ticket -> risk %),
+        # so it can be released when the trade closes.
+        self._committed: dict[int, float] = {}
 
     # ── Period bookkeeping ─────────────────────────────────────────────────────
     def roll_periods(self, now: datetime | None = None) -> None:
@@ -191,7 +194,23 @@ class RiskManager:
             reasons.append(f"margin level {account.margin_level_pct:.0f}% < 150%")
         return RiskDecision(allowed=not reasons, reasons=reasons)
 
-    def commit(self, plan_risk_pct: float) -> None:
-        """Record committed risk once a trade is actually opened."""
+    def commit(self, plan_risk_pct: float, ticket: int | None = None) -> None:
+        """Record committed risk once a trade is actually opened.
+
+        If a ``ticket`` is supplied, the committed risk is tracked per position
+        so it can be released by :meth:`release` when that position closes -
+        otherwise the daily/weekly budget would only ever grow and would lock
+        out new trades after a handful of orders.
+        """
         self.daily_risk_used += plan_risk_pct
         self.weekly_risk_used += plan_risk_pct
+        if ticket is not None:
+            self._committed[ticket] = plan_risk_pct
+
+    def release(self, ticket: int) -> None:
+        """Free the committed risk of a position once it has closed."""
+        risk = self._committed.pop(ticket, None)
+        if risk is None:
+            return
+        self.daily_risk_used = max(0.0, self.daily_risk_used - risk)
+        self.weekly_risk_used = max(0.0, self.weekly_risk_used - risk)
