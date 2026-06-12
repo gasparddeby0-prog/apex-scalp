@@ -62,6 +62,19 @@ uv run apex run --cycles 300 --step-bars 5
 uv run apex dashboard       # http://127.0.0.1:8050
 ```
 
+### Windows: one-click launcher
+
+On Windows you can skip the commands entirely: **double-click `START.bat`**.
+It creates the environment on first run and shows a menu (paper dashboard,
+paper simulation, scan, or live MT5 dashboard) and opens the browser for you.
+
+> **`.env` gotcha on Windows:** the Windows Notepad silently saves `.env` as
+> `.env.txt`, which the app cannot read (you'd stay stuck in paper mode).
+> `START.bat` auto-renames `.env.txt` back to `.env`. To avoid it altogether,
+> edit `.env` with VS Code / Notepad++, or enable "File name extensions" in
+> Explorer. You can also force the mode regardless of `.env` with
+> `apex --mode live dashboard` / `apex --mode paper run`.
+
 ## Configuration
 
 All settings come from environment variables / `.env` (see `.env.example`).

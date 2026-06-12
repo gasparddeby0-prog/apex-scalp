@@ -55,8 +55,22 @@ def _build_orchestrator(args) -> Orchestrator:
     settings = load_settings()
     if getattr(args, "symbols", None):
         settings.symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    if getattr(args, "mode", None):
+        settings.mode = TradingMode(args.mode)
+    log.info("Active mode: %s", settings.mode.value.upper())
     orch = Orchestrator(settings)
-    if not orch.start():
+    try:
+        connected = orch.start()
+    except RuntimeError as exc:
+        # e.g. the MetaTrader5 package is not installed in live mode.
+        raise SystemExit(str(exc)) from exc
+    if not connected:
+        if settings.is_live:
+            raise SystemExit(
+                "Failed to connect to MetaTrader 5. Make sure the MT5 terminal is "
+                "installed, OPEN and logged in, and that MT5_LOGIN / MT5_PASSWORD / "
+                "MT5_SERVER / MT5_PATH in your .env are correct."
+            )
         raise SystemExit("Failed to connect broker. Check your configuration.")
     return orch
 
@@ -107,9 +121,23 @@ def cmd_dashboard(args) -> None:
 
     orch = _build_orchestrator(args)
     s = orch.settings
-    log.info("Dashboard at http://%s:%d", s.dashboard_host, s.dashboard_port)
+    host = args.host or s.dashboard_host
+    port = args.port or s.dashboard_port
+    if isinstance(orch.broker, PaperBroker) and args.warmup:
+        orch.broker.step(args.warmup)
+    log.info("Dashboard at http://%s:%d", host, port)
+    if host in ("0.0.0.0", "::"):
+        log.info("Bound to all interfaces - reachable from other hosts on the network.")
     try:
-        run_dashboard(orch, host=s.dashboard_host, port=s.dashboard_port, debug=args.debug)
+        run_dashboard(
+            orch,
+            host=host,
+            port=port,
+            debug=args.debug,
+            step_bars=args.step_bars,
+            refresh_ms=args.interval,
+            chart_symbol=args.chart_symbol,
+        )
     finally:
         orch.stop()
 
@@ -118,6 +146,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="apex", description="APEX-SCALP multi-strategy bot")
     p.add_argument("--version", action="version", version=f"apex {__version__}")
     p.add_argument("--symbols", help="override symbols, comma-separated")
+    p.add_argument("--mode", choices=["paper", "live"], default=None,
+                   help="override APEX_MODE (paper or live). Robust against .env issues.")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("scan", help="run a single analysis cycle")
@@ -134,6 +164,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     d = sub.add_parser("dashboard", help="launch the web dashboard")
     d.add_argument("--debug", action="store_true")
+    d.add_argument("--host", default=None,
+                   help="bind address (default from config; use 0.0.0.0 to expose on the network)")
+    d.add_argument("--port", type=int, default=None, help="bind port (default from config)")
+    d.add_argument("--warmup", type=int, default=0,
+                   help="advance paper sim N bars before serving")
+    d.add_argument("--step-bars", type=int, default=5,
+                   help="M1 bars to advance per refresh (paper mode)")
+    d.add_argument("--interval", type=int, default=1000,
+                   help="dashboard refresh interval in milliseconds")
+    d.add_argument("--chart-symbol", default=None,
+                   help="symbol shown in the candlestick chart (default: first configured)")
     d.set_defaults(func=cmd_dashboard)
     return p
 
@@ -142,7 +183,8 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging(logging.INFO)
     args = build_parser().parse_args(argv)
     settings = load_settings()
-    if settings.mode is TradingMode.LIVE:
+    mode = TradingMode(args.mode) if getattr(args, "mode", None) else settings.mode
+    if mode is TradingMode.LIVE:
         log.warning("LIVE MODE ENABLED - real orders may be sent to MT5.")
     args.func(args)
 
