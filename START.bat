@@ -33,12 +33,26 @@ if not exist ".venv\" (
   py -m uv pip install -e ".[dev]"
 )
 
-REM --- Avertir si le fichier .env est absent ---
+REM --- Corriger le piege Windows : Notepad enregistre ".env" en ".env.txt" ---
+REM (l'explorateur cache le .txt, mais le programme ne trouve pas le vrai .env)
+if not exist ".env" if exist ".env.txt" (
+  echo.
+  echo Correction : ".env.txt" detecte, renommage en ".env" ...
+  ren ".env.txt" ".env"
+)
+if not exist ".env" if exist "env.txt" (
+  echo Correction : "env.txt" detecte, renommage en ".env" ...
+  ren "env.txt" ".env"
+)
+
+REM --- Avertir si le fichier .env est toujours absent ---
 if not exist ".env" (
   echo.
   echo [ATTENTION] Aucun fichier .env trouve dans ce dossier.
   echo Le mode LIVE a besoin d'un .env avec tes identifiants MT5.
   echo Le mode PAPER fonctionne sans.
+) else (
+  echo .env detecte OK.
 )
 
 :menu
