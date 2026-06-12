@@ -59,7 +59,18 @@ def _build_orchestrator(args) -> Orchestrator:
         settings.mode = TradingMode(args.mode)
     log.info("Active mode: %s", settings.mode.value.upper())
     orch = Orchestrator(settings)
-    if not orch.start():
+    try:
+        connected = orch.start()
+    except RuntimeError as exc:
+        # e.g. the MetaTrader5 package is not installed in live mode.
+        raise SystemExit(str(exc)) from exc
+    if not connected:
+        if settings.is_live:
+            raise SystemExit(
+                "Failed to connect to MetaTrader 5. Make sure the MT5 terminal is "
+                "installed, OPEN and logged in, and that MT5_LOGIN / MT5_PASSWORD / "
+                "MT5_SERVER / MT5_PATH in your .env are correct."
+            )
         raise SystemExit("Failed to connect broker. Check your configuration.")
     return orch
 

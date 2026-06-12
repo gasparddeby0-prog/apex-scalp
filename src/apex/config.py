@@ -7,9 +7,10 @@ environment - never hard-coded. Paper trading is the safe default.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class TradingMode(StrEnum):
@@ -45,7 +46,10 @@ class Settings(BaseSettings):
     paper_balance: float = Field(default=10_000.0, alias="APEX_PAPER_BALANCE")
 
     # ── Engine ──────────────────────────────────────────────────────────────────
-    symbols: list[str] = Field(
+    # NoDecode tells pydantic-settings NOT to JSON-decode this env value, so a
+    # plain comma-separated string (APEX_SYMBOLS=EURUSD,GBPUSD,...) is accepted
+    # and split by the validator below instead of crashing on json.loads.
+    symbols: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "NAS100"],
         alias="APEX_SYMBOLS",
     )
@@ -64,9 +68,15 @@ class Settings(BaseSettings):
     @field_validator("symbols", mode="before")
     @classmethod
     def _split_symbols(cls, value: object) -> object:
-        """Accept a comma-separated string from the env and turn it into a list."""
+        """Accept a comma-separated string from the env and turn it into a list.
+
+        Tolerates a plain CSV (``EURUSD,GBPUSD``) as well as a JSON-ish list
+        (``["EURUSD","GBPUSD"]``); surrounding brackets/quotes are stripped.
+        """
         if isinstance(value, str):
-            return [s.strip().upper() for s in value.split(",") if s.strip()]
+            cleaned = value.strip().strip("[]")
+            parts = [p.strip().strip('"').strip("'").upper() for p in cleaned.split(",")]
+            return [p for p in parts if p]
         return value
 
     @property
