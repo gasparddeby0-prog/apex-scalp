@@ -63,6 +63,9 @@ class Orchestrator:
             settings.is_live if enforce_time_filters is None else enforce_time_filters
         )
         self.last_scan: ScanResult | None = None
+        # How many realised P/L entries we have already fed to the risk manager,
+        # so the consecutive-loss size reduction reacts to newly closed trades.
+        self._consumed_pnls = 0
 
     # ── Lifecycle ────────────────────────────────────────────────────────────────
     def start(self) -> bool:
@@ -156,6 +159,10 @@ class Orchestrator:
 
         self._manage_open_positions()
 
+        # Feed freshly-closed trades to the risk manager so the consecutive-loss
+        # size reduction (spec: halve size after 3 losses) actually engages.
+        self._sync_closed_trades()
+
         result = ScanResult(timestamp=utcnow(), account=account)
         for symbol in self.settings.symbols:
             try:
@@ -174,6 +181,21 @@ class Orchestrator:
 
         self.last_scan = result
         return result
+
+    def _sync_closed_trades(self) -> None:
+        """Register newly-closed trades with the risk manager.
+
+        The broker (paper or live) closes positions on its own when SL/TP is
+        touched, so the orchestrator polls the realised-P/L ledger and forwards
+        only the new entries. Guarded with ``getattr`` so brokers that do not
+        expose a ledger simply skip this step.
+        """
+        ledger = getattr(self.broker, "realised_pnl", None)
+        if ledger is None:
+            return
+        for pnl in ledger[self._consumed_pnls:]:
+            self.risk.register_close(pnl)
+        self._consumed_pnls = len(ledger)
 
     def _manage_open_positions(self) -> None:
         for pos in self.broker.positions():

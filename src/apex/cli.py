@@ -107,9 +107,23 @@ def cmd_dashboard(args) -> None:
 
     orch = _build_orchestrator(args)
     s = orch.settings
-    log.info("Dashboard at http://%s:%d", s.dashboard_host, s.dashboard_port)
+    host = args.host or s.dashboard_host
+    port = args.port or s.dashboard_port
+    if isinstance(orch.broker, PaperBroker) and args.warmup:
+        orch.broker.step(args.warmup)
+    log.info("Dashboard at http://%s:%d", host, port)
+    if host in ("0.0.0.0", "::"):
+        log.info("Bound to all interfaces - reachable from other hosts on the network.")
     try:
-        run_dashboard(orch, host=s.dashboard_host, port=s.dashboard_port, debug=args.debug)
+        run_dashboard(
+            orch,
+            host=host,
+            port=port,
+            debug=args.debug,
+            step_bars=args.step_bars,
+            refresh_ms=args.interval,
+            chart_symbol=args.chart_symbol,
+        )
     finally:
         orch.stop()
 
@@ -134,6 +148,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     d = sub.add_parser("dashboard", help="launch the web dashboard")
     d.add_argument("--debug", action="store_true")
+    d.add_argument("--host", default=None,
+                   help="bind address (default from config; use 0.0.0.0 to expose on the network)")
+    d.add_argument("--port", type=int, default=None, help="bind port (default from config)")
+    d.add_argument("--warmup", type=int, default=0,
+                   help="advance paper sim N bars before serving")
+    d.add_argument("--step-bars", type=int, default=5,
+                   help="M1 bars to advance per refresh (paper mode)")
+    d.add_argument("--interval", type=int, default=1000,
+                   help="dashboard refresh interval in milliseconds")
+    d.add_argument("--chart-symbol", default=None,
+                   help="symbol shown in the candlestick chart (default: first configured)")
     d.set_defaults(func=cmd_dashboard)
     return p
 

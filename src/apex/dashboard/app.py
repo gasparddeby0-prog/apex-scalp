@@ -18,13 +18,16 @@ from dash import (
     dash_table,
     dcc,
     html,
+    no_update,
 )
 
 from apex.broker.paper_broker import PaperBroker
 from apex.engine.orchestrator import Orchestrator
-from apex.logging_setup import recent_logs
+from apex.logging_setup import get_logger, recent_logs
 from apex.models import Timeframe
 from apex.stats import compute_stats
+
+log = get_logger("apex.dashboard")
 
 _CARD = {
     "background": "#11151c",
@@ -47,8 +50,20 @@ _VALUE = {"color": "#e6edf3", "fontSize": "22px", "fontWeight": "600"}
 
 
 def build_app(orchestrator: Orchestrator, chart_symbol: str | None = None,
-              step_bars: int = 5) -> Dash:
-    """Create the Dash app bound to a running :class:`Orchestrator`."""
+              step_bars: int = 5, refresh_ms: int = 1000) -> Dash:
+    """Create the Dash app bound to a running :class:`Orchestrator`.
+
+    Parameters
+    ----------
+    chart_symbol:
+        Symbol to render in the candlestick chart (defaults to the first
+        configured symbol).
+    step_bars:
+        In paper mode, how many synthetic M1 bars to advance per refresh.
+    refresh_ms:
+        How often (milliseconds) the dashboard refreshes and, in paper mode,
+        advances the simulation.
+    """
     app = Dash(__name__, title="APEX-SCALP")
     symbol = chart_symbol or orchestrator.settings.symbols[0]
     is_paper = isinstance(orchestrator.broker, PaperBroker)
@@ -69,7 +84,7 @@ def build_app(orchestrator: Orchestrator, chart_symbol: str | None = None,
                     ),
                 ],
             ),
-            dcc.Interval(id="tick", interval=1000, n_intervals=0),
+            dcc.Interval(id="tick", interval=max(250, refresh_ms), n_intervals=0),
             html.Div(id="account-cards", style={"display": "flex", "flexWrap": "wrap"}),
             html.Div(
                 style={"display": "flex", "flexWrap": "wrap"},
@@ -112,26 +127,35 @@ def build_app(orchestrator: Orchestrator, chart_symbol: str | None = None,
     )
     def refresh(_n):
         # In paper mode, advance the market and run one cycle each refresh.
-        if is_paper:
-            orchestrator.broker.step(step_bars)
-        result = orchestrator.run_once(execute=True)
+        # The whole body is guarded: a single failing cycle must not blank the
+        # entire dashboard - we keep the last good panels and surface the error
+        # in the logs panel instead.
+        try:
+            if is_paper:
+                orchestrator.broker.step(step_bars)
+            result = orchestrator.run_once(execute=True)
 
-        acc = result.account
-        dd = orchestrator.risk.drawdown_pct(acc)
-        cards = [
-            _card("Balance", f"{acc.balance:,.2f}"),
-            _card("Equity", f"{acc.equity:,.2f}"),
-            _card("Free margin", f"{acc.free_margin:,.2f}"),
-            _card("Drawdown", f"{dd:.2f}%", color="#f85149" if dd >= 5 else "#3fb950"),
-            _card("Open", str(len(orchestrator.broker.positions()))),
-        ]
+            acc = result.account
+            dd = orchestrator.risk.drawdown_pct(acc)
+            cards = [
+                _card("Balance", f"{acc.balance:,.2f}"),
+                _card("Equity", f"{acc.equity:,.2f}"),
+                _card("Free margin", f"{acc.free_margin:,.2f}"),
+                _card("Drawdown", f"{dd:.2f}%", color="#f85149" if dd >= 5 else "#3fb950"),
+                _card("Open", str(len(orchestrator.broker.positions()))),
+            ]
 
-        fig = _chart_figure(orchestrator, symbol)
-        stats = _stats_block(orchestrator)
-        positions = _positions_table(orchestrator)
-        signals = _signals_table(result)
-        logs = _logs_text()
-        return cards, fig, stats, positions, signals, logs
+            fig = _chart_figure(orchestrator, symbol)
+            stats = _stats_block(orchestrator)
+            positions = _positions_table(orchestrator)
+            signals = _signals_table(result)
+            logs = _logs_text()
+            return cards, fig, stats, positions, signals, logs
+        except Exception as exc:  # keep the UI alive, report the failure
+            log.exception("dashboard refresh failed: %s", exc)
+            # Update only the logs panel (now containing the error); leave the
+            # rest of the dashboard showing its last known-good state.
+            return (no_update, no_update, no_update, no_update, no_update, _logs_text())
 
     return app
 
@@ -237,6 +261,8 @@ def _logs_text() -> str:
 
 
 def run_dashboard(orchestrator: Orchestrator, host: str = "127.0.0.1", port: int = 8050,
-                  debug: bool = False) -> None:
-    app = build_app(orchestrator)
+                  debug: bool = False, step_bars: int = 5, refresh_ms: int = 1000,
+                  chart_symbol: str | None = None) -> None:
+    app = build_app(orchestrator, chart_symbol=chart_symbol, step_bars=step_bars,
+                    refresh_ms=refresh_ms)
     app.run(host=host, port=port, debug=debug)
